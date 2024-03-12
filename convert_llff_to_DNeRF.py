@@ -38,18 +38,19 @@ for file in tqdm(files):
     if ('npy' in file):
         print("loading poses")
         poses = np.load(os.path.join(input_path, file))
-    elif ('mp4' in file or 'MP4' in file) and found_vid < 1:
+    elif ('mp4' in file or 'MP4' in file):
         print("loading video")
-        os.makedirs(f"{output_path}/{file[:-4]}", exist_ok = True)
-        all_cams.append(int(file[:-4]))
+        cam_id = file[:-4]
+        os.makedirs(f"{output_path}/{cam_id}", exist_ok = True)
+        all_cams.append(int(cam_id))
         cap = cv2.VideoCapture(os.path.join(input_path, file))
         num_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
         for i in range(num_frames):
             success, frame = cap.read()
             if i % args.frame_skip == 0:
                 h, w = frame.shape[:2]
-                all_frames.append((int(file[:-4]), i, w, h))
-                cv2.imwrite(f"{output_path}/{file[:-4]}/{i:04d}.png", frame)
+                all_frames.append((int(cam_id), i, w, h))
+                cv2.imwrite(f"{output_path}/{cam_id}/{cam_id}_{i:04d}.png", frame)
         cap.release()
         found_vid+=1
 
@@ -111,7 +112,7 @@ for i in range(len(frames)):
             # as double
         else:
             time = y / args.source_framerate
-        file_path = f"./{x:04d}/{y:04d}.png"
+        file_path = f"./{x:04d}/{x:04d}_{y:04d}.png"
         frame_map = {"file_path": file_path, "camera_angle_x": angle, "time": time, "transform_matrix": trans,"w": w, "h": h,"k": k.tolist()}
         frame_i.append(frame_map)
 
