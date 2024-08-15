@@ -20,7 +20,7 @@ class Processor:
     def prep_folders(self):
         self.input_path = os.path.normpath(self.args.folder_path)
         self.output_path = self.input_path + '_DNeRF'
-
+        
         if os.path.exists(self.output_path):
             shutil.rmtree(self.output_path)
 
@@ -39,23 +39,30 @@ class Processor:
         parser.add_argument('--calib_len', type=int, default=10*30)
         parser.add_argument('--target_idx', type=int, default=20*30)
         parser.add_argument('--start_idx', type=int, default=3*30)
+        parser.add_argument('--view_skip', type=int, default=1)
+        parser.add_argument('--exclude_cams',nargs='+',type=int,default=None)
+        parser.add_argument('--no_timesync',action='store_true')
 
         self.args = parser.parse_args()
 
-    def get_start_idx(self,path, calib_len):
-        cap = cv2.VideoCapture(path)
-        brightness = []
-        for j in range(calib_len):
-            success, image = cap.read()
-            brightness.append(np.mean(image))
-            if not success:
-                cap.release()
-                raise ValueError(f"Video failed at frame {j}")
-        cap.release()
-        brightness = np.array(brightness)
-        delta_brightness = brightness[1:] - brightness[:-1]
-        idx_found = np.argmax(delta_brightness)
-        return idx_found
+    def get_start_idx(self,path, calib_len,no_timesync=False):
+        if not no_timesync:
+            cap = cv2.VideoCapture(path)
+            brightness = []
+            for j in range(calib_len):
+                success, image = cap.read()
+                brightness.append(np.mean(image))
+                if not success:
+                    cap.release()
+                    raise ValueError(f"Video failed at frame {j}")
+            cap.release()
+            brightness = np.array(brightness)
+            delta_brightness = brightness[1:] - brightness[:-1]
+            idx_found = np.argmax(delta_brightness)
+            return idx_found
+        else:
+            return 0
+
 
     def load_poses(self):
         for file in self.files:
@@ -68,14 +75,19 @@ class Processor:
         self.all_frames = []
         self.all_cams = []
 
+        view_count = 0
         for file in tqdm(self.files):
             if ('mp4' in file or 'MP4' in file):
+                if view_count % self.args.view_skip != 0:
+                    view_count += 1
+                    continue
+                view_count += 1
                 print("loading video")
                 cam_id = file[:-4]
                 os.makedirs(f"{self.output_path}/{cam_id}", exist_ok = True)
                 self.all_cams.append(int(cam_id))
 
-                align_idx = self.get_start_idx(os.path.join(self.input_path, file), self.args.calib_len)
+                align_idx = self.get_start_idx(os.path.join(self.input_path, file), self.args.calib_len,no_timesync=self.args.no_timesync)
                 i0 = align_idx + self.args.start_idx
         
                 cap = cv2.VideoCapture(os.path.join(self.input_path, file))
@@ -89,6 +101,8 @@ class Processor:
                         self.all_frames.append((int(cam_id), i, w, h))
                         cv2.imwrite(f"{self.output_path}/{cam_id}/{cam_id}_{i:04d}.png", frame)
                 cap.release()
+
+        self.n_cams = len(self.all_cams)
 
     def gen_json(self):
         self.all_cams = sorted(self.all_cams)
@@ -105,16 +119,26 @@ class Processor:
         last_row = np.tile(np.array([0, 0, 0, 1]), (len(self.poses), 1, 1)) # (N, 1, 4)
         self.poses = np.concatenate([self.poses, last_row], axis=1) # (N, 4, 4) 
 
-        random.shuffle(self.all_frames)
+        #self.all_frames = sorted(self.all_frames, key=lambda x: (x[0],x[1]))
+        if self.args.exclude_cams is not None:
+            self.all_frames = [frame for frame in self.all_frames if frame[0] not in self.args.exclude_cams]
 
+        print("total number of frames: ", len(self.all_frames))
+        np.random.shuffle(self.all_frames)
+
+        self.num_frames = self.args.target_idx//self.args.frame_skip
         name = ["train", "val", "test"]
-        percent = [0.8, 0.1, 0.1]
+        percent = [0.9, 1.0, 1.0]
+        percent = np.cumsum(percent)
+        ## cutoffs rounded by n_frames
+        cutoffs = [int(len(self.all_frames) * x/self.num_frames) for x in percent]
+        cutoffs = [cut* self.num_frames for cut in cutoffs]
+        cutoffs = [0] + cutoffs
         frames = []
 
         last = 0
-        for x in percent:
-            frames.append(self.all_frames[int(len(self.all_frames) * last): int(len(self.all_frames) * (last + x))])
-            last += x
+        for i in range(len(percent)):
+            frames.append(self.all_frames[cutoffs[i]: cutoffs[i+1]])
 
         max_time = None
         min_time = None
@@ -138,7 +162,10 @@ class Processor:
                 k[1, 2] = h * 0.5
 
                 if self.args.normalize_time:
-                    time = float((y - min_time) / (max_time - min_time))
+                    if max_time - min_time == 0:
+                        time = 0.0
+                    else:
+                        time = float((y - min_time) / (max_time - min_time))
                     # as double
                 else:
                     time = y / self.args.source_framerate

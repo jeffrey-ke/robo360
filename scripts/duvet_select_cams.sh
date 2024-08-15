@@ -1,0 +1,1 @@
+python3 convert_llff_to_DNeRF.py --folder_path raw_360_data/batch1/cloth/  --normalize_time --start_idx 180 --target_idx 40 --frame_skip 1 --exclude_cams 3 4 5 6 32 33 36 37 38 39 41 42 43 44 45 46 47 48 49 50 51 52 53 54 55 61 80 88
