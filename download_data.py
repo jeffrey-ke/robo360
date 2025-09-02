@@ -1,7 +1,13 @@
 from huggingface_hub import snapshot_download
+import pdb
 import os 
+from argparse import ArgumentParser
 
-output_dir = "data"
+parser = ArgumentParser()
+parser.add_argument("--out-dir", type=str, default="data")
+args = parser.parse_args()
+
+output_dir = args.out_dir
 repo_id = "liuyubian/Robo360" 
 dirs = ["batch2/xarm6_fold_tshirt","batch2/xarm6_unfold_tshirt", "batch1/cloth"]
 
